@@ -1,26 +1,24 @@
 {
   "name": "muk-biomedssa-backend",
   "version": "1.0.0",
-  "description": "Backend API for MUK-BIOMEDSSA Research App",
+  "description": "Backend server for MUK-BIOMEDSSA Research App with permanent storage",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index.js"
   },
-  "keywords": [
-    "biomedical",
-    "research",
-    "api"
-  ],
+  "keywords": ["biomedical", "research", "api"],
   "author": "",
-  "license": "MIT",
+  "license": "ISC",
   "dependencies": {
-    "body-parser": "^1.20.2",
-    "cors": "^2.8.6",
     "express": "^4.18.2",
-    "multer": "^1.4.5-lts.1"
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.2",
+    "multer": "^1.4.5-lts.1",
+    "mongoose": "^8.0.3",
+    "cloudinary": "^1.41.1",
+    "multer-storage-cloudinary": "^4.0.0"
   },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+  "engines": {
+    "node": ">=14.0.0"
   }
 }
