@@ -2,112 +2,164 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
+const mongoose = require('mongoose');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
-// Create data directory if it doesn't exist
-const dataDir = path.join(__dirname, 'data');
-const uploadsDir = path.join(__dirname, 'uploads', 'pdfs');
+// ============================================
+// MONGODB CONNECTION
+// ============================================
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/mukbiomedssa';
 
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log('✅ Connected to MongoDB'))
+  .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// File paths for JSON databases
-const USERS_FILE = path.join(dataDir, 'users.json');
-const ARTICLES_FILE = path.join(dataDir, 'articles.json');
-const CONFIG_FILE = path.join(dataDir, 'config.json');
-const UNDERSTANDING_FILE = path.join(dataDir, 'understanding.json');
-
-// Initialize JSON files if they don't exist
-const initFile = (filePath, defaultData) => {
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2));
-  }
-};
-
-initFile(USERS_FILE, []);
-initFile(ARTICLES_FILE, []);
-initFile(CONFIG_FILE, {
-  app_title: 'MUK-BIOMEDSSA',
-  app_subtitle: 'Research App',
-  welcome_message: 'Stay Updated with the Latest Biomedical Research Discoveries',
-  primary_color: '#0D7377',
-  secondary_color: '#f8fafc',
-  accent_color: '#16a34a',
-  text_color: '#1e293b',
-  about_description: 'To provide biomedical science students with accessible, curated research content that bridges the gap between academic literature and practical understanding, fostering the next generation of healthcare researchers and professionals.',
-  font_family: 'Plus Jakarta Sans',
-  font_size: 16,
-  contact_email: 'biomedssa@muk.ac.zm',
-  contact_location: 'Mukuba University, Kitwe',
-  contact_website: ''
+// ============================================
+// CLOUDINARY CONFIGURATION (for PDF storage)
+// ============================================
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'your-cloud-name',
+  api_key: process.env.CLOUDINARY_API_KEY || 'your-api-key',
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'your-api-secret'
 });
-initFile(UNDERSTANDING_FILE, {});
 
-// Helper functions to read/write JSON files
-const readJSON = (filePath) => {
-  try {
-    const data = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error(`Error reading ${filePath}:`, error);
-    return filePath === USERS_FILE ? [] : 
-           filePath === UNDERSTANDING_FILE ? {} : 
-           filePath === CONFIG_FILE ? {} : [];
-  }
-};
-
-const writeJSON = (filePath, data) => {
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    return true;
-  } catch (error) {
-    console.error(`Error writing ${filePath}:`, error);
-    return false;
-  }
-};
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
+// Configure multer to use Cloudinary
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'muk-pdfs',
+    resource_type: 'raw', // Important for PDFs
+    allowed_formats: ['pdf'],
   },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
-  }
 });
 
 const upload = multer({ storage: storage });
 
 // ============================================
-// HEALTH CHECK - ADDED THIS!
+// MONGODB SCHEMAS
+// ============================================
+
+// User Schema
+const userSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  password: String,
+  createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema);
+
+// Article Schema
+const articleSchema = new mongoose.Schema({
+  title: String,
+  category: String,
+  description: String,
+  authors: String,
+  institution: String,
+  publicationDate: String,
+  pdfName: String,
+  pdfUrl: String, // Cloudinary URL
+  pdfFile: Boolean,
+  createdAt: { type: Date, default: Date.now }
+});
+
+const Article = mongoose.model('Article', articleSchema);
+
+// Config Schema
+const configSchema = new mongoose.Schema({
+  app_title: { type: String, default: 'MUK-BIOMEDSSA' },
+  app_subtitle: { type: String, default: 'Research App' },
+  welcome_message: { type: String, default: 'Stay Updated with the Latest Biomedical Research Discoveries' },
+  primary_color: { type: String, default: '#0D7377' },
+  secondary_color: { type: String, default: '#f8fafc' },
+  accent_color: { type: String, default: '#16a34a' },
+  text_color: { type: String, default: '#1e293b' },
+  about_description: String,
+  font_family: { type: String, default: 'Plus Jakarta Sans' },
+  font_size: { type: Number, default: 16 },
+  contact_email: { type: String, default: 'biomedssa@muk.ac.zm' },
+  contact_location: { type: String, default: 'Mukuba University, Kitwe' },
+  contact_website: String
+});
+
+const Config = mongoose.model('Config', configSchema);
+
+// Understanding Materials Schema
+const understandingSchema = new mongoose.Schema({
+  articleId: String,
+  summary: String,
+  materials: [{
+    name: String,
+    url: String,
+    size: Number
+  }]
+});
+
+const Understanding = mongoose.model('Understanding', understandingSchema);
+
+// Push Subscription Schema
+const pushSubscriptionSchema = new mongoose.Schema({
+  endpoint: String,
+  keys: {
+    p256dh: String,
+    auth: String
+  },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const PushSubscription = mongoose.model('PushSubscription', pushSubscriptionSchema);
+
+// ============================================
+// PUSH NOTIFICATION HELPERS
+// ============================================
+
+async function sendPushNotification(title, body, data = {}) {
+  const subscriptions = await PushSubscription.find();
+  
+  const payload = JSON.stringify({
+    title: title,
+    body: body,
+    icon: '/icon.png',
+    badge: '/icon.png',
+    data: data
+  });
+
+  // Send to all subscribed devices
+  subscriptions.forEach(async (subscription) => {
+    try {
+      // Note: For production, use web-push library
+      console.log('Would send notification to:', subscription.endpoint);
+      // await webpush.sendNotification(subscription, payload);
+    } catch (error) {
+      console.error('Error sending notification:', error);
+    }
+  });
+}
+
+// ============================================
+// HEALTH CHECK
 // ============================================
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Server is running' });
+  res.json({ status: 'ok', message: 'Server is running', database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' });
 });
 
 // ============================================
-// AUTHENTICATION ROUTES - WITHOUT /api prefix
+// AUTHENTICATION ROUTES
 // ============================================
 
 // Register
-app.post('/auth/register', (req, res) => {
+app.post('/auth/register', async (req, res) => {
   const { name, email, password } = req.body;
 
-  // Validation
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'Please fill in all fields' });
   }
@@ -116,233 +168,289 @@ app.post('/auth/register', (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
   }
 
-  const users = readJSON(USERS_FILE);
+  try {
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
 
-  // Check if user already exists
-  if (users.find(u => u.email === email)) {
-    return res.status(400).json({ error: 'Email already registered' });
+    const newUser = new User({ name, email, password });
+    await newUser.save();
+
+    const userWithoutPassword = { id: newUser._id, name: newUser.name, email: newUser.email };
+    res.json({
+      user: userWithoutPassword,
+      session: 'session_' + Date.now()
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
   }
-
-  // Create new user
-  const newUser = {
-    id: users.length + 1,
-    name,
-    email,
-    password, // In production, hash this with bcrypt
-    createdAt: new Date().toISOString()
-  };
-
-  users.push(newUser);
-  writeJSON(USERS_FILE, users);
-
-  // Return user without password
-  const { password: _, ...userWithoutPassword } = newUser;
-  res.json({
-    user: userWithoutPassword,
-    session: 'session_' + Date.now()
-  });
 });
 
 // Login
-app.post('/auth/login', (req, res) => {
+app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Please enter email and password' });
   }
 
-  const users = readJSON(USERS_FILE);
-  const user = users.find(u => u.email === email && u.password === password);
+  try {
+    const user = await User.findOne({ email, password });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
 
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid email or password' });
+    const userWithoutPassword = { id: user._id, name: user.name, email: user.email };
+    res.json({
+      user: userWithoutPassword,
+      session: 'session_' + Date.now()
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
   }
-
-  // Return user without password
-  const { password: _, ...userWithoutPassword } = user;
-  res.json({
-    user: userWithoutPassword,
-    session: 'session_' + Date.now()
-  });
-});
-
-// Verify session (simple check - in production use JWT)
-app.get('/auth/verify', (req, res) => {
-  const userId = req.headers['user-id'];
-  
-  if (!userId) {
-    return res.status(401).json({ error: 'No user ID provided' });
-  }
-
-  const users = readJSON(USERS_FILE);
-  const user = users.find(u => u.id === parseInt(userId));
-
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid session' });
-  }
-
-  const { password: _, ...userWithoutPassword } = user;
-  res.json({ user: userWithoutPassword });
 });
 
 // ============================================
-// ARTICLES ROUTES - WITHOUT /api prefix
+// ARTICLES ROUTES
 // ============================================
 
 // Get all articles
-app.get('/articles', (req, res) => {
-  const articles = readJSON(ARTICLES_FILE);
-  res.json(articles);
+app.get('/articles', async (req, res) => {
+  try {
+    const articles = await Article.find().sort({ createdAt: -1 });
+    res.json(articles);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // Get single article
-app.get('/articles/:id', (req, res) => {
-  const articles = readJSON(ARTICLES_FILE);
-  const article = articles.find(a => a.id === parseInt(req.params.id));
-  
-  if (!article) {
-    return res.status(404).json({ error: 'Article not found' });
+app.get('/articles/:id', async (req, res) => {
+  try {
+    const article = await Article.findById(req.params.id);
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    res.json(article);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
   }
-  
-  res.json(article);
 });
 
 // Create article
-app.post('/articles', upload.single('pdf'), (req, res) => {
+app.post('/articles', upload.single('pdf'), async (req, res) => {
   const { title, category, description, authors, institution, publicationDate } = req.body;
   
-  const articles = readJSON(ARTICLES_FILE);
-  
-  const newArticle = {
-    id: Date.now(),
-    title,
-    category,
-    description,
-    authors,
-    institution,
-    publicationDate,
-    pdfName: req.file ? req.file.filename : '',
-    pdfFile: !!req.file,
-    createdAt: new Date().toISOString()
-  };
-  
-  articles.push(newArticle);
-  writeJSON(ARTICLES_FILE, articles);
-  
-  res.json(newArticle);
+  try {
+    const newArticle = new Article({
+      title,
+      category,
+      description,
+      authors,
+      institution,
+      publicationDate,
+      pdfName: req.file ? req.file.originalname : '',
+      pdfUrl: req.file ? req.file.path : '', // Cloudinary URL
+      pdfFile: !!req.file
+    });
+
+    await newArticle.save();
+    
+    // Send push notification
+    await sendPushNotification(
+      'New Article Published',
+      title,
+      { articleId: newArticle._id.toString(), action: 'view_article' }
+    );
+
+    res.json(newArticle);
+  } catch (error) {
+    console.error('Error creating article:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // Update article
-app.put('/articles/:id', upload.single('pdf'), (req, res) => {
+app.put('/articles/:id', upload.single('pdf'), async (req, res) => {
   const { title, category, description, authors, institution, publicationDate } = req.body;
   
-  const articles = readJSON(ARTICLES_FILE);
-  const index = articles.findIndex(a => a.id === parseInt(req.params.id));
-  
-  if (index === -1) {
-    return res.status(404).json({ error: 'Article not found' });
+  try {
+    const updateData = {
+      title,
+      category,
+      description,
+      authors,
+      institution,
+      publicationDate
+    };
+
+    if (req.file) {
+      updateData.pdfName = req.file.originalname;
+      updateData.pdfUrl = req.file.path;
+      updateData.pdfFile = true;
+    }
+
+    const article = await Article.findByIdAndUpdate(req.params.id, updateData, { new: true });
+    
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+
+    res.json(article);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
   }
-  
-  articles[index] = {
-    ...articles[index],
-    title,
-    category,
-    description,
-    authors,
-    institution,
-    publicationDate,
-    ...(req.file && { pdfName: req.file.filename, pdfFile: true })
-  };
-  
-  writeJSON(ARTICLES_FILE, articles);
-  res.json(articles[index]);
 });
 
 // Delete article
-app.delete('/articles/:id', (req, res) => {
-  const articles = readJSON(ARTICLES_FILE);
-  const index = articles.findIndex(a => a.id === parseInt(req.params.id));
-  
-  if (index === -1) {
-    return res.status(404).json({ error: 'Article not found' });
-  }
-  
-  // Delete PDF file if exists
-  if (articles[index].pdfFile && articles[index].pdfName) {
-    const pdfPath = path.join(uploadsDir, articles[index].pdfName);
-    if (fs.existsSync(pdfPath)) {
-      fs.unlinkSync(pdfPath);
+app.delete('/articles/:id', async (req, res) => {
+  try {
+    const article = await Article.findByIdAndDelete(req.params.id);
+    
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
     }
+
+    res.json({ message: 'Article deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
   }
-  
-  articles.splice(index, 1);
-  writeJSON(ARTICLES_FILE, articles);
-  
-  res.json({ message: 'Article deleted successfully' });
 });
 
 // ============================================
-// CONFIG ROUTES - WITHOUT /api prefix
+// CONFIG ROUTES
 // ============================================
 
 // Get config
-app.get('/config', (req, res) => {
-  const config = readJSON(CONFIG_FILE);
-  res.json(config);
+app.get('/config', async (req, res) => {
+  try {
+    let config = await Config.findOne();
+    if (!config) {
+      config = new Config();
+      await config.save();
+    }
+    res.json(config);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
-// Update config - CHANGED FROM PUT TO POST
-app.post('/config', (req, res) => {
-  const config = req.body;
-  writeJSON(CONFIG_FILE, config);
-  res.json(config);
+// Update config
+app.post('/config', async (req, res) => {
+  try {
+    let config = await Config.findOne();
+    if (!config) {
+      config = new Config(req.body);
+    } else {
+      Object.assign(config, req.body);
+    }
+    await config.save();
+    res.json(config);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // ============================================
-// UNDERSTANDING MATERIALS ROUTES - WITHOUT /api prefix
+// UNDERSTANDING MATERIALS ROUTES
 // ============================================
 
 // Get all understanding materials
-app.get('/understanding', (req, res) => {
-  const understanding = readJSON(UNDERSTANDING_FILE);
-  res.json(understanding);
+app.get('/understanding', async (req, res) => {
+  try {
+    const materials = await Understanding.find();
+    const result = {};
+    materials.forEach(m => {
+      result[m.articleId] = {
+        summary: m.summary,
+        materials: m.materials
+      };
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // Get understanding materials for specific article
-app.get('/understanding/:articleId', (req, res) => {
-  const understanding = readJSON(UNDERSTANDING_FILE);
-  const articleId = req.params.articleId;
-  res.json(understanding[articleId] || { summary: '', materials: [] });
+app.get('/understanding/:articleId', async (req, res) => {
+  try {
+    const material = await Understanding.findOne({ articleId: req.params.articleId });
+    if (!material) {
+      return res.json({ summary: '', materials: [] });
+    }
+    res.json({ summary: material.summary, materials: material.materials });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // Save understanding materials for article
-app.post('/understanding/:articleId', upload.array('materials', 10), (req, res) => {
-  const articleId = req.params.articleId;
+app.post('/understanding/:articleId', upload.array('materials', 10), async (req, res) => {
   const { summary } = req.body;
   
-  const understanding = readJSON(UNDERSTANDING_FILE);
-  
-  const materials = req.files ? req.files.map(file => ({
-    name: file.originalname,
-    size: file.size,
-    filename: file.filename
-  })) : [];
-  
-  understanding[articleId] = {
-    summary: summary || '',
-    materials
-  };
-  
-  writeJSON(UNDERSTANDING_FILE, understanding);
-  res.json(understanding[articleId]);
+  try {
+    const materials = req.files ? req.files.map(file => ({
+      name: file.originalname,
+      url: file.path,
+      size: file.size
+    })) : [];
+
+    let understanding = await Understanding.findOne({ articleId: req.params.articleId });
+    
+    if (understanding) {
+      understanding.summary = summary || '';
+      understanding.materials = materials;
+    } else {
+      understanding = new Understanding({
+        articleId: req.params.articleId,
+        summary: summary || '',
+        materials
+      });
+    }
+
+    await understanding.save();
+    res.json({ summary: understanding.summary, materials: understanding.materials });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // ============================================
-// FILE SERVING
+// PUSH NOTIFICATION ROUTES
 // ============================================
 
-// Serve PDF files
-app.use('/uploads/pdfs', express.static(uploadsDir));
+// Subscribe to push notifications
+app.post('/push/subscribe', async (req, res) => {
+  try {
+    const { endpoint, keys } = req.body;
+    
+    // Check if already subscribed
+    const existing = await PushSubscription.findOne({ endpoint });
+    if (existing) {
+      return res.json({ message: 'Already subscribed' });
+    }
+
+    const subscription = new PushSubscription({ endpoint, keys });
+    await subscription.save();
+    
+    res.json({ message: 'Subscribed successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Unsubscribe from push notifications
+app.post('/push/unsubscribe', async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    await PushSubscription.deleteOne({ endpoint });
+    res.json({ message: 'Unsubscribed successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // ============================================
 // START SERVER
@@ -355,12 +463,14 @@ app.listen(PORT, () => {
 ║    MUK-BIOMEDSSA Backend Server                          ║
 ║                                                           ║
 ║    ✅ Server running on http://localhost:${PORT}            ║
+║    📦 Database: MongoDB (Permanent Storage)              ║
+║    ☁️  File Storage: Cloudinary                          ║
+║    🔔 Push Notifications: Enabled                        ║
 ║                                                           ║
 ║    API Endpoints:                                        ║
 ║    - GET    /health                                      ║
-║    - POST   /auth/register                               ║
 ║    - POST   /auth/login                                  ║
-║    - GET    /auth/verify                                 ║
+║    - POST   /auth/register                               ║
 ║    - GET    /articles                                    ║
 ║    - POST   /articles                                    ║
 ║    - PUT    /articles/:id                                ║
@@ -369,9 +479,11 @@ app.listen(PORT, () => {
 ║    - POST   /config                                      ║
 ║    - GET    /understanding                               ║
 ║    - POST   /understanding/:articleId                    ║
+║    - POST   /push/subscribe                              ║
+║    - POST   /push/unsubscribe                            ║
 ║                                                           ║
 ║    Press Ctrl+C to stop the server                       ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
-}); 
+});
