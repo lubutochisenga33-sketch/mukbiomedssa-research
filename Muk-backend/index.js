@@ -293,7 +293,7 @@ app.post('/articles', upload.single('pdf'), async (req, res) => {
       institution,
       publicationDate,
       pdfName: req.file ? req.file.originalname : '',
-      pdfUrl: req.file ? req.file.path : '',
+      pdfUrl: req.file ? req.file.url || req.file.path : '',
       pdfFile: !!req.file,
       createdAt: new Date().toISOString()
     };
@@ -330,7 +330,7 @@ app.put('/articles/:id', upload.single('pdf'), async (req, res) => {
       publicationDate,
       ...(req.file && { 
         pdfName: req.file.originalname, 
-        pdfUrl: req.file.path,
+        pdfUrl: req.file.url || req.file.path,
         pdfFile: true 
       })
     };
