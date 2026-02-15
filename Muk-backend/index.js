@@ -4,6 +4,7 @@ const bodyParser = require('body-parser');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const admin = require('firebase-admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,6 +24,22 @@ cloudinary.config({
 });
 
 console.log('Cloudinary configured:', process.env.CLOUDINARY_CLOUD_NAME ? 'YES' : 'NO');
+
+// ============================================
+// FIREBASE ADMIN CONFIGURATION
+// ============================================
+try {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+    })
+  });
+  console.log('✅ Firebase Admin initialized successfully');
+} catch (error) {
+  console.error('❌ Firebase Admin initialization error:', error.message);
+}
 
 // Configure multer for PDFs
 const pdfStorage = new CloudinaryStorage({
@@ -138,6 +155,35 @@ async function saveDataToCloudinary() {
 setInterval(() => {
   saveDataToCloudinary();
 }, 10000);
+
+// ============================================
+// PUSH NOTIFICATION FUNCTION
+// ============================================
+async function sendPushNotification(title, description) {
+  try {
+    const message = {
+      notification: {
+        title: 'New Article Published! 📚',
+        body: title
+      },
+      topic: 'all_users',
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          channelId: 'articles'
+        }
+      }
+    };
+    
+    const response = await admin.messaging().send(message);
+    console.log('✅ Push notification sent successfully:', response);
+    return true;
+  } catch (error) {
+    console.error('❌ Push notification error:', error.message);
+    return false;
+  }
+}
 
 // ============================================
 // HEALTH CHECK
@@ -302,6 +348,9 @@ app.post('/articles', upload.single('pdf'), async (req, res) => {
     console.log('Article added, total articles:', articles.length);
     
     await saveDataToCloudinary();
+    
+    // Send push notification
+    await sendPushNotification(newArticle.title, newArticle.description);
     
     console.log('✅ Article created successfully');
     res.json(newArticle);
